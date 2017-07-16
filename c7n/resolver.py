@@ -18,9 +18,8 @@ import io
 import json
 import os.path
 from six.moves.urllib.request import urlopen
-from six.moves.urllib.parse import parse_qsl, urlparse
 
-import c7n.utils
+from c7n import utils
 
 import jmespath
 
