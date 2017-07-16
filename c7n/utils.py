@@ -15,8 +15,6 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 from botocore.exceptions import ClientError
 
-from c7n.resolver import URIResolver
-
 import boto3
 import copy
 from datetime import datetime
@@ -30,6 +28,7 @@ import threading
 import time
 import ipaddress
 import six
+from six.moves.urllib.parse import parse_qsl, urlparse
 
 # Try to place nice in lambda exec environment
 # where we don't require yaml
@@ -70,7 +69,7 @@ def load_file(path, options, format=None, vars=None):
 
     if path.startswith('s3://'):
         session = get_profile_session(options)
-        contents = URIResolver(session, None).resolve(path)
+        contents = load_file_from_s3(path, session)
     else:
         with open(path) as fh:
             contents = fh.read()
@@ -89,6 +88,16 @@ def load_file(path, options, format=None, vars=None):
         return yaml_load(contents)
     elif format == 'json':
         return loads(contents)
+
+
+def load_file_from_s3(path, session):
+    parsed = urlparse(path)
+    client = session.client('s3')
+    params = dict(Bucket=parsed.netloc, Key=parsed.path[1:])
+    if parsed.query:
+        params.update(dict(parse_qsl(parsed.query)))
+    result = client.get_object(**params)
+    return result['Body'].read()
 
 
 def yaml_load(value):
