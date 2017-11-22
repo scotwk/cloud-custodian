@@ -2498,7 +2498,7 @@ class Lifecycle(BucketActionBase):
                                 'And': {
                                     'type': 'object',
                                     'additionalProperties': False,
-                                    'items': {
+                                    'properties': {
                                         'Prefix': {'type': 'string'},
                                         'Tags': {
                                             'type': 'array',
@@ -2506,7 +2506,7 @@ class Lifecycle(BucketActionBase):
                                                 'type': 'object',
                                                 'required': ['Key', 'Value'],
                                                 'additionalProperties': False,
-                                                'items': {
+                                                'properties': {
                                                     'Key': {'type': 'string'},
                                                     'Value': {'type': 'string'},
                                                 },
@@ -2542,14 +2542,14 @@ class Lifecycle(BucketActionBase):
                         'NoncurrentVersionExpiration': {
                             'type': 'object',
                             'additionalProperties': False,
-                            'items': {
+                            'properties': {
                                 'NoncurrentDays': {'type': 'integer'},
                             },
                         },
                         'AbortIncompleteMultipartUpload': {
                             'type': 'object',
                             'additionalProperties': False,
-                            'items': {
+                            'properties': {
                                 'DaysAfterInitiation': {'type': 'integer'},
                             },
                         },
