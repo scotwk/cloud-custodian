@@ -2582,7 +2582,7 @@ class Lifecycle(BucketActionBase):
         s3 = bucket_client(local_session(self.manager.session_factory), bucket)
 
         # Adjust the existing lifecycle by adding/deleting/overwriting rules as necessary
-        config = (bucket['Lifecycle'] or {}).get('Rules', [])
+        config = (bucket.get('Lifecycle') or {}).get('Rules', [])
         for rule in self.data['rules']:
             for index, existing_rule in enumerate(config):
                 if rule['ID'] == existing_rule['ID']:
