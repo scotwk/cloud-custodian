@@ -2595,11 +2595,17 @@ class Lifecycle(BucketActionBase):
                 if rule['Status'] != 'absent':
                     config.append(rule)
 
-        # The extra `list` conversion if required for python3
+        # The extra `list` conversion is required for python3
         config = list(filter(None, config))
 
-        s3.put_bucket_lifecycle_configuration(
-            Bucket=bucket['Name'], LifecycleConfiguration={'Rules': config})
+        try:
+            s3.put_bucket_lifecycle_configuration(
+                Bucket=bucket['Name'], LifecycleConfiguration={'Rules': config})
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'AccessDenied':
+                log.warning("Access Denied Bucket:%s while applying lifecycle" % bucket['Name'])
+            else:
+                raise e
 
 
 @actions.register('set-bucket-encryption')
