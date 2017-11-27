@@ -2581,6 +2581,10 @@ class Lifecycle(BucketActionBase):
     def process_bucket(self, bucket):
         s3 = bucket_client(local_session(self.manager.session_factory), bucket)
 
+        if 'get_bucket_lifecycle_configuration' in bucket.get('c7n:DeniedMethods', []):
+            log.warning("Access Denied Bucket:%s while reading lifecycle" % bucket['Name'])
+            return
+
         # Adjust the existing lifecycle by adding/deleting/overwriting rules as necessary
         config = (bucket.get('Lifecycle') or {}).get('Rules', [])
         for rule in self.data['rules']:
