@@ -21,13 +21,34 @@ import json, time
 
 class TestSqsAction(BaseTest):
 
+    def cleanup_queue(self, client, name, url):
+        if url in client.list_queues(QueueNamePrefix=name).get('QueueUrls', []):
+            client.delete_queue(QueueUrl=url)
+
+    def create_queue(self, client, name):
+        queue_url = client.create_queue(QueueName=name)['QueueUrl']
+
+        # Sometimes SQS has a delay before queue shows up
+        counter = 0
+        while True:
+            try:
+                queue = client.get_queue_attributes(QueueUrl=queue_url, AttributeNames=['All'])
+            except ClientError:
+                time.sleep(5)
+                counter += 1
+                if counter > 12:
+                    self.fail('SQS queue was not created')
+                continue
+            break
+            
+        self.addCleanup(self.cleanup_queue, client, name, queue_url)
+        return queue_url
+
     @functional
     def test_sqs_delete(self):
-        session_factory = self.replay_flight_data(
-            'test_sqs_delete')
+        session_factory = self.replay_flight_data('test_sqs_delete')
         client = session_factory().client('sqs')
-        client.create_queue(QueueName='test-sqs')
-        queue_url = client.get_queue_url(QueueName='test-sqs')['QueueUrl']
+        queue_url = self.create_queue(client, 'test-sqs-delete')
 
         p = self.load_policy({
             'name': 'sqs-delete',
@@ -45,13 +66,9 @@ class TestSqsAction(BaseTest):
 
     @functional
     def test_sqs_set_encryption(self):
-        session_factory = self.replay_flight_data(
-            'test_sqs_set_encryption')
-
+        session_factory = self.replay_flight_data('test_sqs_set_encryption')
         client_sqs = session_factory().client('sqs')
-        client_sqs.create_queue(QueueName='sqs-test')
-        queue_url = client_sqs.get_queue_url(QueueName='sqs-test')['QueueUrl']
-        self.addCleanup(client_sqs.delete_queue, QueueUrl=queue_url)
+        queue_url = self.create_queue(client_sqs, 'test-sqs-set-encryption')
 
         client_kms = session_factory().client('kms')
         key_id = client_kms.create_key(Description='West SQS encryption key')['KeyMetadata']['KeyId']
@@ -80,9 +97,7 @@ class TestSqsAction(BaseTest):
     def test_sqs_remove_matched(self):
         session_factory = self.replay_flight_data('test_sqs_remove_matched')
         client = session_factory().client('sqs')
-        name = 'test-sqs-remove-matched-1'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
+        queue_url = self.create_queue(client, 'test-sqs-remove-matched-1')
 
         client.set_queue_attributes(
             QueueUrl=queue_url,
@@ -138,9 +153,7 @@ class TestSqsAction(BaseTest):
     def test_sqs_remove_named(self):
         session_factory = self.replay_flight_data('test_sqs_remove_named')
         client = session_factory().client('sqs')
-        name = 'test-sqs-remove-named'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
+        queue_url = self.create_queue(client, 'test-sqs-remove-named')
 
         client.set_queue_attributes(
             QueueUrl=queue_url,
@@ -204,9 +217,7 @@ class TestSqsAction(BaseTest):
     def test_sqs_mark_for_op(self):
         session_factory = self.replay_flight_data('test_sqs_mark_for_op')
         client = session_factory().client('sqs')
-        name = 'test-sqs'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
+        queue_url = self.create_queue(client, 'test-sqs-mark-for-op')
 
         p = self.load_policy({
             'name': 'sqs-mark-for-op',
@@ -230,9 +241,7 @@ class TestSqsAction(BaseTest):
     def test_sqs_tag(self):
         session_factory = self.replay_flight_data('test_sqs_tags')
         client = session_factory().client('sqs')
-        name = 'test-sqs'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
+        queue_url = self.create_queue(client, 'test-sqs-tag')
 
         p = self.load_policy({
             'name': 'sqs-mark-for-op',
@@ -254,14 +263,12 @@ class TestSqsAction(BaseTest):
     def test_sqs_remove_tag(self):
         session_factory = self.replay_flight_data('test_sqs_remove_tag')
         client = session_factory().client('sqs')
-        name = 'test-sqs'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
+        queue_url = self.create_queue(client, 'test-sqs-remove-tag')
         client.tag_queue(
             QueueUrl=queue_url,
             Tags={
                 'remove-this-tag': 'tag to be removed'
             })
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
 
         p = self.load_policy({
             'name': 'sqs-mark-for-op',
@@ -282,14 +289,12 @@ class TestSqsAction(BaseTest):
     def test_sqs_marked_for_op(self):
         session_factory = self.replay_flight_data('test_sqs_marked_for_op')
         client = session_factory().client('sqs')
-        name = 'test-sqs'
-        queue_url = client.create_queue(QueueName=name)['QueueUrl']
+        queue_url = self.create_queue(client, 'test-sqs-marked-for-op')
         client.tag_queue(
             QueueUrl=queue_url,
             Tags={
                 'tag-for-op': 'Resource does not meet policy: delete@2017/11/01'
             })
-        self.addCleanup(client.delete_queue, QueueUrl=queue_url)
 
         p = self.load_policy({
             'name': 'sqs-marked-for-op',
