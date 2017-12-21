@@ -388,7 +388,7 @@ class HasPendingMaintenance(Filter):
 
 
 @actions.register('apply-pending-maintenance')
-class RDSSetPublicAvailability(BaseAction):
+class RDSApplyMaintenance(BaseAction):
     """
     This action allows for applying pending maintenance to an RDS instance.
 
