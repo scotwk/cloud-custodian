@@ -191,6 +191,56 @@ class SecurityGroupFilter(RelatedResourceFilter):
         return vpc_group_ids
 
 
+@Vpc.filter_registry.register('vpc-attributes')
+class AttributesFilter(Filter):
+    """Filters VPCs based on their DNS attributes
+
+    :example:
+
+    .. code-block:: yaml
+
+            policies:
+              - name: dns-hostname-enabled
+                resource: vpc
+                filters:
+                  - type: vpc-attributes
+                    dnshostnames: True
+    """
+    schema = type_schema(
+        'vpc-attributes',
+        dnshostnames={'type': 'boolean'},
+        dnssupport={'type': 'boolean'})
+    permissions = ('ec2:DescribeVpcAttributes',)
+
+    def process(self, resources, event=None):
+        results = []
+        client = local_session(self.manager.session_factory).client('ec2')
+        dns_hostname = self.data.get('dnshostnames', None)
+        dns_support = self.data.get('dnssupport', None)
+
+        for r in resources:
+            if dns_hostname is not None:
+                hostname = client.describe_vpc_attribute(
+                    VpcId=r['VpcId'],
+                    Attribute='enableDnsHostnames'
+                )['EnableDnsHostnames']['Value']
+            if dns_support is not None:
+                support = client.describe_vpc_attribute(
+                    VpcId=r['VpcId'],
+                    Attribute='enableDnsSupport'
+                )['EnableDnsSupport']['Value']
+            if dns_hostname is not None and dns_support is not None:
+                if dns_hostname == hostname and dns_support == support:
+                    results.append(r)
+            elif dns_hostname is not None and dns_support is None:
+                if dns_hostname == hostname:
+                    results.append(r)
+            elif dns_support is not None and dns_hostname is None:
+                if dns_support == support:
+                    results.append(r)
+        return results
+
+
 @resources.register('subnet')
 class Subnet(query.QueryResourceManager):
 
@@ -723,6 +773,7 @@ class SGPermission(Filter):
         'IpRanges', 'PrefixListIds'))
     filter_attrs = set(('Cidr', 'Ports', 'OnlyPorts', 'SelfReference'))
     attrs = perm_attrs.union(filter_attrs)
+    attrs.add('match-operator')
 
     def validate(self):
         delta = set(self.data.keys()).difference(self.attrs)
@@ -785,10 +836,16 @@ class SGPermission(Filter):
 
     def process_self_reference(self, perm, sg_id):
         found = None
+        ref_match = self.data.get('SelfReference')
+        if ref_match is not None:
+            found = False
         if 'UserIdGroupPairs' in perm and 'SelfReference' in self.data:
             self_reference = sg_id in [p['GroupId']
                                        for p in perm['UserIdGroupPairs']]
-            found = self_reference & self.data['SelfReference']
+            if ref_match is False and not self_reference:
+                found = True
+            if ref_match is True and self_reference:
+                found = True
         return found
 
     def expand_permissions(self, permissions):
@@ -816,34 +873,26 @@ class SGPermission(Filter):
                     yield ep
 
     def __call__(self, resource):
-        def _accumulate(f, x):
-            '''
-            Accumulate an intermediate found value into the overall result.
-            '''
-            if x is not None:
-                f = (f is not None and x & f or x)
-            return f
-
         matched = []
         sg_id = resource['GroupId']
-
+        match_op = self.data.get('match-operator', 'and') == 'and' and all or any
         for perm in self.expand_permissions(resource[self.ip_permissions_key]):
-            found = None
-            for f in self.vfilters:
-                if f(perm):
-                    found = True
-                else:
-                    found = False
-                    break
-            if found is None or found:
-                found = _accumulate(found, self.process_ports(perm))
-            if found is None or found:
-                found = _accumulate(found, self.process_cidrs(perm))
-            if found is None or found:
-                found = _accumulate(found, self.process_self_reference(perm, sg_id))
-            if not found:
+            perm_matches = {}
+            for idx, f in enumerate(self.vfilters):
+                perm_matches[idx] = bool(f(perm))
+            perm_matches['ports'] = self.process_ports(perm)
+            perm_matches['cidrs'] = self.process_cidrs(perm)
+            perm_matches['self-refs'] = self.process_self_reference(perm, sg_id)
+            perm_match_values = list(filter(
+                lambda x: x is not None, perm_matches.values()))
+
+            # account for one python behavior any([]) == False, all([]) == True
+            if match_op == all and not perm_match_values:
                 continue
-            matched.append(perm)
+
+            match = match_op(perm_match_values)
+            if match:
+                matched.append(perm)
 
         if matched:
             resource['Matched%s' % self.ip_permissions_key] = matched
@@ -859,6 +908,7 @@ class IPPermission(SGPermission):
         # 'additionalProperties': True,
         'properties': {
             'type': {'enum': ['ingress']},
+            'match-operator': {'type': 'string', 'enum': ['or', 'and']},
             'Ports': {'type': 'array', 'items': {'type': 'integer'}},
             'SelfReference': {'type': 'boolean'}
         },
@@ -874,6 +924,7 @@ class IPPermissionEgress(SGPermission):
         # 'additionalProperties': True,
         'properties': {
             'type': {'enum': ['egress']},
+            'match-operator': {'type': 'string', 'enum': ['or', 'and']},
             'SelfReference': {'type': 'boolean'}
         },
         'required': ['type']}
